@@ -2,7 +2,7 @@ Aged Inventory Dashboard
 Upload today's files to refresh the dashboard
 {% if has_data %}
 ✓ Data loaded — {{ meta.uploaded }}
-{{ meta.warehouse_filename }} · {{ "{:,}".format(meta.rows) }} rows
+{{ meta.warehouse_filename }} · {{ "{:,}".format(meta.rows) }} rows {% if meta.sdrop_items %} · {{ meta.sdrop_items }} S-Drop items{% endif %}
 {% endif %}
 Warehouse File (.xlsx)
 Click to browse or drag and drop
