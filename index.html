@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aged Inventory Dashboard — Upload</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f4f8; min-height: 100vh;
+           display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.10);
+            padding: 48px 56px; width: 100%; max-width: 560px; }
+
+    .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; }
+    .logo-icon { width: 40px; height: 40px; background: #1F3864; border-radius: 8px;
+                 display: flex; align-items: center; justify-content: center; }
+    .logo-icon svg { width: 22px; height: 22px; fill: #fff; }
+    h1 { font-size: 22px; color: #1F3864; font-weight: 700; }
+    .subtitle { color: #64748b; font-size: 13px; margin-top: 2px; }
+
+    .status-banner { background: #e2efda; border: 1px solid #a8d08d; border-radius: 8px;
+                     padding: 12px 16px; margin-bottom: 24px; font-size: 13px; color: #375623; }
+    .status-banner strong { display: block; margin-bottom: 2px; }
+
+    .drop-zone { border: 2px dashed #cbd5e1; border-radius: 10px; padding: 28px 20px;
+                 text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 16px;
+                 background: #f8fafc; }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: #2E75B6; background: #eff6ff; }
+    .drop-zone svg { width: 32px; height: 32px; stroke: #94a3b8; margin-bottom: 8px; }
+    .drop-zone .label { font-size: 14px; color: #475569; font-weight: 600; }
+    .drop-zone .sublabel { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+    .drop-zone input[type=file] { display: none; }
+    .file-chosen { font-size: 12px; color: #2E75B6; margin-top: 6px; font-weight: 600; }
+
+    .btn { width: 100%; padding: 13px; background: #1F3864; color: #fff; border: none;
+           border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;
+           transition: background .2s; margin-top: 8px; }
+    .btn:hover { background: #2E75B6; }
+    .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+    .view-link { display: block; text-align: center; margin-top: 20px; font-size: 13px;
+                 color: #2E75B6; text-decoration: none; font-weight: 600; }
+    .view-link:hover { text-decoration: underline; }
+
+    .progress { display: none; margin-top: 16px; }
+    .progress-bar { height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: #2E75B6; width: 0; transition: width .3s;
+                     border-radius: 3px; }
+    .progress-text { font-size: 12px; color: #64748b; margin-top: 6px; text-align: center; }
+
+    .error-msg { background: #fee2e2; border: 1px solid #fca5a5; border-radius: 8px;
+                 padding: 10px 14px; font-size: 13px; color: #991b1b; margin-top: 12px;
+                 display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24"><path d="M20 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 3H8a2 2 0 00-2 2v2h12V5a2 2 0 00-2-2z"/></svg>
+      </div>
+      <div>
+        <h1>Aged Inventory Dashboard</h1>
+        <div class="subtitle">Upload today's files to refresh the dashboard</div>
+      </div>
+    </div>
+
+    {% if has_data %}
+    <div class="status-banner">
+      <strong>✓ Data loaded — {{ meta.uploaded }}</strong>
+      {{ meta.warehouse_filename }} · {{ "{:,}".format(meta.rows) }} rows
+    </div>
+    {% endif %}
+
+    <form id="uploadForm">
+      <div class="drop-zone" id="warehouseZone" onclick="document.getElementById('warehouseFile').click()">
+        <input type="file" id="warehouseFile" accept=".xlsx" onchange="fileChosen(this,'warehouseZone','warehouseLabel')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/>
+        </svg>
+        <div class="label">Warehouse File (.xlsx)</div>
+        <div class="sublabel">Click to browse or drag and drop</div>
+        <div class="file-chosen" id="warehouseLabel"></div>
+      </div>
+
+      <div class="drop-zone" id="notesZone" onclick="document.getElementById('notesFile').click()">
+        <input type="file" id="notesFile" accept=".csv" onchange="fileChosen(this,'notesZone','notesLabel')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
+        </svg>
+        <div class="label">Internal Notes (.csv)</div>
+        <div class="sublabel">Click to browse or drag and drop</div>
+        <div class="file-chosen" id="notesLabel"></div>
+      </div>
+
+      <div class="progress" id="progress">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text" id="progressText">Processing…</div>
+      </div>
+
+      <div class="error-msg" id="errorMsg"></div>
+
+      <button class="btn" type="submit" id="uploadBtn" disabled>Upload &amp; Process</button>
+    </form>
+
+    {% if has_data %}
+    <a class="view-link" href="/dashboard">→ View current dashboard</a>
+    {% endif %}
+  </div>
+
+  <script>
+    function fileChosen(input, zoneId, labelId) {
+      const label = document.getElementById(labelId);
+      label.textContent = input.files[0] ? '✓ ' + input.files[0].name : '';
+      checkReady();
+    }
+
+    function checkReady() {
+      const wh = document.getElementById('warehouseFile').files[0];
+      const nt = document.getElementById('notesFile').files[0];
+      document.getElementById('uploadBtn').disabled = !(wh && nt);
+    }
+
+    // Drag and drop
+    ['warehouseZone', 'notesZone'].forEach(id => {
+      const zone = document.getElementById(id);
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault(); zone.classList.remove('drag-over');
+        const fileInput = zone.querySelector('input[type=file]');
+        const label = zone.querySelector('.file-chosen');
+        if (e.dataTransfer.files[0]) {
+          const dt = new DataTransfer();
+          dt.items.add(e.dataTransfer.files[0]);
+          fileInput.files = dt.files;
+          label.textContent = '✓ ' + e.dataTransfer.files[0].name;
+          checkReady();
+        }
+      });
+    });
+
+    document.getElementById('uploadForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const btn = document.getElementById('uploadBtn');
+      const progress = document.getElementById('progress');
+      const fill = document.getElementById('progressFill');
+      const text = document.getElementById('progressText');
+      const errorMsg = document.getElementById('errorMsg');
+
+      btn.disabled = true; errorMsg.style.display = 'none';
+      progress.style.display = 'block';
+
+      // Animate progress bar while waiting
+      let pct = 0;
+      const interval = setInterval(() => {
+        pct = Math.min(pct + 2, 85);
+        fill.style.width = pct + '%';
+        text.textContent = pct < 30 ? 'Reading files…' : pct < 60 ? 'Processing data…' : 'Building dashboard…';
+      }, 150);
+
+      const fd = new FormData();
+      fd.append('warehouse', document.getElementById('warehouseFile').files[0]);
+      fd.append('notes', document.getElementById('notesFile').files[0]);
+
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        clearInterval(interval);
+        if (data.success) {
+          fill.style.width = '100%'; text.textContent = 'Done! Redirecting…';
+          setTimeout(() => window.location.href = '/dashboard', 600);
+        } else {
+          throw new Error(data.error || 'Upload failed');
+        }
+      } catch (err) {
+        clearInterval(interval);
+        progress.style.display = 'none';
+        errorMsg.textContent = '⚠ ' + err.message; errorMsg.style.display = 'block';
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
