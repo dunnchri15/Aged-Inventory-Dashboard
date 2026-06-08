@@ -1,0 +1,14 @@
+Aged Inventory Dashboard
+Upload today's files to refresh the dashboard
+{% if has_data %}
+✓ Data loaded — {{ meta.uploaded }}
+{{ meta.warehouse_filename }} · {{ "{:,}".format(meta.rows) }} rows
+{% endif %}
+Warehouse File (.xlsx)
+Click to browse or drag and drop
+Internal Notes (.csv)
+Click to browse or drag and drop
+Upload & Process
+{% if has_data %}
+→ View current dashboard
+{% endif %}
