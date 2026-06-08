@@ -145,6 +145,7 @@ def process_files(warehouse_path, notes_path):
         'projects':sorted(df['PROJECT_NAME'].dropna().unique().tolist()),
         'coordinators':sorted(df['COORDINATOR'].dropna().unique().tolist()),
         'drop_locations':sorted(sdrop_raw['LOCATION'].unique().tolist()),
+        'uploaded': pd.Timestamp.now().strftime('%B %d, %Y'),
     }
 
 # ── HTML pages (inline — no templates folder needed) ─────────────────────────
