@@ -679,34 +679,20 @@ function switchTab(name, btn) {
   btn.classList.add('active');
   document.getElementById('mainFilters').style.display  = name==='main'  ? '' : 'none';
   document.getElementById('sdropFilters').style.display = name==='sdrop' ? '' : 'none';
-  if (name === 'sdrop') loadSdrop();
+
 }
 
 // ── Load data ─────────────────────────────────────────────────────────────────
-let SDROP_LOADED = false;
-
-async function loadSdrop() {
-  if (SDROP_LOADED) return;
-  SDROP_LOADED = true;
-  try {
-    const res = await fetch('/api/sdrop');
-    const items = await res.json();
-    if (!RAW.sdrop) RAW.sdrop = {};
-    RAW.sdrop.items = items;
-    // Populate S-Drop coordinator filter now that we have items
-    const sdropCoords = [...new Set(items.map(r => r.coordinator))].sort();
-    sdropCoords.forEach(c => {
-      document.getElementById('filterDropCoord').appendChild(new Option(c, c));
-    });
-    renderSdrop();
-  } catch(e) {
-    console.error('S-Drop load failed', e);
-  }
-}
-
 async function loadData() {
-  const res = await fetch('/api/data');
-  RAW = await res.json();
+  try {
+    const res = await fetch('/api/data');
+    if (!res.ok) throw new Error('Server returned ' + res.status);
+    RAW = await res.json();
+  } catch(e) {
+    document.getElementById('loading').innerHTML = '<div style="color:#fff;text-align:center"><div style="font-size:18px;margin-bottom:12px">⚠ Could not load data</div><div style="font-size:13px;opacity:.8">Please <a href="/" style="color:#fff">upload your files</a> first.</div></div>';
+    return;
+  }
+
   if (!RAW.sdrop) RAW.sdrop = { kpis:{}, by_location:[], items:[] };
 
   // Set the uploaded date in the header
@@ -715,26 +701,21 @@ async function loadData() {
   }
 
   // Populate main filters
-  RAW.projects.forEach(p => {
-    document.getElementById('filterProject').appendChild(new Option(p, p));
-  });
-  RAW.coordinators.forEach(c => {
-    document.getElementById('filterCoord').appendChild(new Option(c, c));
-  });
+  RAW.projects.forEach(p => document.getElementById('filterProject').appendChild(new Option(p, p)));
+  RAW.coordinators.forEach(c => document.getElementById('filterCoord').appendChild(new Option(c, c)));
 
-  // Populate S-Drop location filter (from top-level drop_locations, no items needed)
-  (RAW.drop_locations || []).forEach(l => {
-    document.getElementById('filterDropLoc').appendChild(new Option(l, l));
-  });
+  // Populate S-Drop filters
+  (RAW.drop_locations || []).forEach(l => document.getElementById('filterDropLoc').appendChild(new Option(l, l)));
+  const sdropCoords = [...new Set((RAW.sdrop.items || []).map(r => r.coordinator))].sort();
+  sdropCoords.forEach(c => document.getElementById('filterDropCoord').appendChild(new Option(c, c)));
 
-  // Update S-Drop badge from kpis (available immediately without loading items)
-  const sdropCount = RAW.sdrop?.kpis?.total_items ?? 0;
-  document.getElementById('sdropBadge').textContent = sdropCount;
+  // Update S-Drop badge
+  document.getElementById('sdropBadge').textContent = RAW.sdrop?.kpis?.total_items ?? 0;
 
   applyFilters();
   renderSdropKpis();
   renderSdropLocGrid();
-  // renderSdrop() called lazily when S-Drop tab is first clicked
+  renderSdrop();
   document.getElementById('loading').style.display = 'none';
 }
 
@@ -1050,11 +1031,7 @@ def upload():
     notes.save(notes_path)
     try:
         data = process_files(wh_path, notes_path)
-        # Save main data (without sdrop items - loaded separately for speed)
-        sdrop_items = data.get('sdrop', {}).pop('items', [])
         PROCESSED_PATH.write_text(json.dumps(data))
-        # Save sdrop items separately
-        (DATA_DIR / 'sdrop.json').write_text(json.dumps(sdrop_items))
         META_PATH.write_text(json.dumps({
             'warehouse_filename': warehouse.filename,
             'notes_filename': notes.filename,
@@ -1077,13 +1054,6 @@ def api_data():
     if not PROCESSED_PATH.exists():
         return jsonify({'error': 'No data loaded'}), 404
     return PROCESSED_PATH.read_text(), 200, {'Content-Type': 'application/json'}
-
-@app.route('/api/sdrop')
-def api_sdrop():
-    sdrop_path = DATA_DIR / 'sdrop.json'
-    if not sdrop_path.exists():
-        return jsonify([]), 200
-    return sdrop_path.read_text(), 200, {'Content-Type': 'application/json'}
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
