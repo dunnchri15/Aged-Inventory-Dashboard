@@ -685,11 +685,21 @@ function switchTab(name, btn) {
 // ── Load data ─────────────────────────────────────────────────────────────────
 async function loadData() {
   try {
-    const res = await fetch('/api/data');
-    if (!res.ok) throw new Error('Server returned ' + res.status);
+    // 10 second timeout — if server doesn't respond, show error
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch('/api/data', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error('no_data');
     RAW = await res.json();
   } catch(e) {
-    document.getElementById('loading').innerHTML = '<div style="color:#fff;text-align:center"><div style="font-size:18px;margin-bottom:12px">⚠ Could not load data</div><div style="font-size:13px;opacity:.8">Please <a href="/" style="color:#fff">upload your files</a> first.</div></div>';
+    document.getElementById('loading').innerHTML = `
+      <div style="text-align:center;padding:40px">
+        <div style="font-size:48px;margin-bottom:16px">📂</div>
+        <div style="font-size:20px;font-weight:700;margin-bottom:8px">No data loaded yet</div>
+        <div style="font-size:14px;opacity:.8;margin-bottom:24px">Upload your warehouse and internal notes files to get started.</div>
+        <a href="/" style="background:#fff;color:#1F3864;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">↑ Upload Files</a>
+      </div>`;
     return;
   }
 
@@ -1046,7 +1056,7 @@ def upload():
 @app.route('/dashboard')
 def dashboard():
     if not PROCESSED_PATH.exists():
-        return redirect(url_for('index'))
+        return redirect('/')
     return Response(DASHBOARD_HTML, mimetype='text/html')
 
 @app.route('/api/data')
