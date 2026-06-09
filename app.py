@@ -961,13 +961,11 @@ function toCSV(headers, rows) {
   const escape = v => {
     if (v == null) return '';
     const s = String(v);
-    return s.includes(',') || s.includes('"') || s.includes('
-') ? '"' + s.replace(/"/g, '""') + '"' : s;
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const lines = [headers.map(escape).join(',')];
   rows.forEach(r => lines.push(r.map(escape).join(',')));
-  return lines.join('
-');
+  return lines.join('\n');
 }
 
 function downloadCSV(filename, csv) {
