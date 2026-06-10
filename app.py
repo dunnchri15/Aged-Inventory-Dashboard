@@ -113,8 +113,6 @@ def process_files(warehouse_path, notes_path):
             'avg_age':     round(float(grp['INV_AGE'].mean()), 1),
             'max_age':     int(grp['INV_AGE'].max()),
             'age_bucket':  str(grp['AGE_BUCKET'].mode().iloc[0]) if len(grp) else '',
-            'serial':    str(row['REVISION']).strip() if pd.notna(row['REVISION']) and str(row['REVISION']).strip() else '—',
-            'ship_date': row['SHIP_DATE'].strftime('%m/%d/%Y') if pd.notna(row['SHIP_DATE']) else '—',
             'status':      str(grp['ORDER_STATUS'].mode().iloc[0]) if len(grp) else '',
             'ship_range':  sr,
         })
