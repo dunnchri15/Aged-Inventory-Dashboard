@@ -121,6 +121,7 @@ def process_files(warehouse_path, notes_path):
     # S-Drop table
     sdrop_df = df[df['LOCATION'].str.contains('drop', case=False, na=False) & (df['INV_AGE'] > 2)].copy()
     sdrop_df = sdrop_df.sort_values('INV_AGE', ascending=False)
+    sdrop_df['SHIP_DATE_STR'] = sdrop_df['SHIP_DATE'].dt.strftime('%m/%d/%Y').where(sdrop_df['SHIP_DATE'].notna(), None)
 
     loc_sum = (sdrop_df.groupby('LOCATION')
                .agg(items=('LOCATION','count'), value=('EXTENDED_COST','sum'),
@@ -182,6 +183,8 @@ def process_files(warehouse_path, notes_path):
             'value':      round(float(row['EXTENDED_COST']), 2) if pd.notna(row['EXTENDED_COST']) else 0,
             'status':     str(row['ORDER_STATUS']) if pd.notna(row['ORDER_STATUS']) else '—',
             'age_bucket': str(row['AGE_BUCKET']) if pd.notna(row['AGE_BUCKET']) else '—',
+            'serial':    str(row['REVISION']).strip() if pd.notna(row['REVISION']) and str(row['REVISION']).strip() else '—',
+            'ship_date': row['SHIP_DATE'].strftime('%m/%d/%Y') if pd.notna(row['SHIP_DATE']) else '—',
         })
     closed = {
         'kpis': {
