@@ -54,6 +54,10 @@ def process_files(warehouse_path, notes_path):
     df = df.merge(coord_map, left_on='ORDERS', right_on='Order No', how='left')
     df.rename(columns={'Project Coordinator':'COORDINATOR'}, inplace=True)
     df['SHIP_DATE'] = pd.to_datetime(df['SHIP_DATE'], errors='coerce')
+    # Ensure optional columns exist safely
+    for _col in ['CONTAINERS', 'REVISION', 'PART_NO']:
+        if _col not in df.columns:
+            df[_col] = None
 
     # KPIs
     total_value  = float(df['EXTENDED_COST'].sum())
@@ -145,7 +149,7 @@ def process_files(warehouse_path, notes_path):
             'value':      round(float(row['EXTENDED_COST']), 2) if pd.notna(row['EXTENDED_COST']) else 0,
             'status':     str(row['ORDER_STATUS']) if pd.notna(row['ORDER_STATUS']) and str(row['ORDER_STATUS']) != '.' else '—',
             'flag':       flag,
-            'serial':    str(row['CONTAINERS']).strip() if pd.notna(row['CONTAINERS']) and str(row['CONTAINERS']).strip() not in ('', 'nan') else '—',
+            'serial':    str(row.get('CONTAINERS', '')).strip() if pd.notna(row.get('CONTAINERS')) and str(row.get('CONTAINERS','')).strip() not in ('', 'nan') else '—',
             'ship_date': str(row['SHIP_DATE_STR']) if pd.notna(row['SHIP_DATE_STR']) else '—',
         })
 
@@ -183,7 +187,7 @@ def process_files(warehouse_path, notes_path):
             'value':      round(float(row['EXTENDED_COST']), 2) if pd.notna(row['EXTENDED_COST']) else 0,
             'status':     str(row['ORDER_STATUS']) if pd.notna(row['ORDER_STATUS']) else '—',
             'age_bucket': str(row['AGE_BUCKET']) if pd.notna(row['AGE_BUCKET']) else '—',
-            'serial':    str(row['CONTAINERS']).strip() if pd.notna(row['CONTAINERS']) and str(row['CONTAINERS']).strip() not in ('', 'nan') else '—',
+            'serial':    str(row.get('CONTAINERS', '')).strip() if pd.notna(row.get('CONTAINERS')) and str(row.get('CONTAINERS','')).strip() not in ('', 'nan') else '—',
             'ship_date': row['SHIP_DATE'].strftime('%m/%d/%Y') if pd.notna(row['SHIP_DATE']) else '—',
         })
     closed = {
@@ -209,6 +213,10 @@ def process_files(warehouse_path, notes_path):
     }
     ALL_OFFSITE = [lg for lgs in BUILDING_MAP.values() for lg in lgs]
     offsite_df = df[df['LOCATION_GROUP'].isin(ALL_OFFSITE)].copy()
+    if 'CONTAINERS' not in offsite_df.columns:
+        offsite_df['CONTAINERS'] = None
+    if 'CONTAINERS' not in df.columns:
+        df['CONTAINERS'] = None
 
     # Map each row to its building label
     lg_to_building = {lg: b for b, lgs in BUILDING_MAP.items() for lg in lgs}
