@@ -8,7 +8,8 @@ import base64 as _b64
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 
-DATA_DIR = Path('data')
+# Use persistent disk on Render, local folder otherwise
+DATA_DIR = Path(os.environ.get('DATA_DIR', 'data'))
 DATA_DIR.mkdir(exist_ok=True)
 PROCESSED_PATH = DATA_DIR / 'processed.json'
 META_PATH = DATA_DIR / 'meta.json'
