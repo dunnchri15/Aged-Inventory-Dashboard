@@ -203,7 +203,7 @@ def process_files(warehouse_path, notes_path):
             'max_age':       int(closed_df['INV_AGE'].max()) if len(closed_df) else 0,
         },
         'items': closed_items,
-        'coordinators': sorted(closed_df['COORDINATOR'].dropna().unique().tolist()),
+        'coordinators': sorted(set(closed_df['COORDINATOR'].fillna('Unassigned').unique().tolist())),
     }
 
     # ── Offsite Storage tab ────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ def process_files(warehouse_path, notes_path):
                       'avg_age': round(float(r['avg_age']), 1),
                       'max_age': int(r['max_age'])} for _, r in bld_sum.iterrows()],
         'items': offsite_items,
-        'coordinators': sorted(offsite_df['COORDINATOR'].dropna().unique().tolist()),
+        'coordinators': sorted(set(offsite_df['COORDINATOR'].fillna('Unassigned').unique().tolist())),
         'statuses':     sorted([s for s in offsite_df['ORDER_STATUS'].dropna().unique().tolist() if s != '.']),
     }
 
@@ -407,7 +407,7 @@ def process_files(warehouse_path, notes_path):
         'closed':       closed,
         'offsite':      offsite,
         'projects':     sorted(df['PROJECT_NAME'].dropna().unique().tolist()),
-        'coordinators': sorted(df['COORDINATOR'].dropna().unique().tolist()),
+        'coordinators': sorted(set(df['COORDINATOR'].fillna('Unassigned').unique().tolist())),
         'drop_locations': sorted(sdrop_df['LOCATION'].unique().tolist()),
         'uploaded':     pd.Timestamp.now().strftime('%B %d, %Y'),
     }
