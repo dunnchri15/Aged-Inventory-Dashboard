@@ -511,12 +511,24 @@ document.getElementById('uploadForm').addEventListener('submit',async function(e
   var fd=new FormData();
   fd.append('warehouse',document.getElementById('wf').files[0]);
   fd.append('notes',document.getElementById('nf').files[0]);
+  // Advance steps while processing runs in background
   [1000,4000,8000,11000].forEach(function(d,i){setTimeout(function(){setStep(i+2);},d);});
   try{
     var res=await fetch('/upload',{method:'POST',body:fd});
     var data=await res.json();
-    if(data.success){setStep(5);document.getElementById('pf').style.width='100%';setTimeout(function(){window.location.href='/dashboard';},800);}
-    else throw new Error(data.error||'Upload failed');
+    if(!data.success) throw new Error(data.error||'Upload failed');
+    // Poll /api/upload_status until done
+    var attempts=0;
+    var poll=setInterval(async function(){
+      attempts++;
+      if(attempts>120){clearInterval(poll);err.textContent='&#9888; Processing timed out. Please try again.';err.style.display='block';document.getElementById('prog').style.display='none';btn.disabled=false;return;}
+      try{
+        var sr=await fetch('/api/upload_status');
+        var st=await sr.json();
+        if(st.status==='done'){clearInterval(poll);setStep(5);document.getElementById('pf').style.width='100%';setTimeout(function(){window.location.href='/dashboard';},800);}
+        else if(st.status==='error'){clearInterval(poll);throw new Error(st.error||'Processing failed');}
+      }catch(pe){clearInterval(poll);document.getElementById('prog').style.display='none';err.textContent='&#9888; '+pe.message;err.style.display='block';btn.disabled=false;}
+    },1000);
   }catch(ex){
     document.getElementById('prog').style.display='none';
     err.textContent='&#9888; '+ex.message;err.style.display='block';btn.disabled=false;
@@ -548,30 +560,48 @@ def index():
     html = html.replace('STATUS_BLOCK', status).replace('LINK_BLOCK', link)
     return Response(html, mimetype='text/html')
 
-@app.route('/upload', methods=['POST'])
-def upload():
-    warehouse = request.files.get('warehouse')
-    notes = request.files.get('notes')
-    if not warehouse or not notes:
-        return jsonify({'error': 'Both files are required'}), 400
-    wh_path = DATA_DIR / 'warehouse_temp.xlsx'
-    notes_path = DATA_DIR / 'notes_temp.csv'
-    warehouse.save(wh_path)
-    notes.save(notes_path)
+# Processing state for async upload
+_processing_state = {'status': 'idle', 'error': None}
+
+def _run_processing(wh_path, notes_path, warehouse_filename, notes_filename):
+    global _processing_state
+    _processing_state = {'status': 'processing', 'error': None}
     try:
         data = process_files(wh_path, notes_path)
         PROCESSED_PATH.write_text(json.dumps(data))
         META_PATH.write_text(json.dumps({
-            'warehouse_filename': warehouse.filename,
-            'notes_filename': notes.filename,
+            'warehouse_filename': warehouse_filename,
+            'notes_filename': notes_filename,
             'rows': data['kpis']['total_containers'],
             'sdrop_items': data['sdrop']['kpis']['total_items'],
             'uploaded': data['uploaded'],
         }))
-        return jsonify({'success': True})
+        _processing_state = {'status': 'done', 'error': None}
     except Exception as e:
         import traceback
-        return jsonify({'error': str(e), 'detail': traceback.format_exc()}), 500
+        _processing_state = {'status': 'error', 'error': str(e), 'detail': traceback.format_exc()}
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    import threading
+    warehouse = request.files.get('warehouse')
+    notes = request.files.get('notes')
+    if not warehouse or not notes:
+        return jsonify({'error': 'Both files are required'}), 400
+    wh_path    = DATA_DIR / 'warehouse_temp.xlsx'
+    notes_path = DATA_DIR / 'notes_temp.csv'
+    warehouse.save(wh_path)
+    notes.save(notes_path)
+    wh_name = warehouse.filename
+    nt_name = notes.filename
+    # Start processing in background thread — returns immediately to avoid timeout
+    t = threading.Thread(target=_run_processing, args=(wh_path, notes_path, wh_name, nt_name), daemon=True)
+    t.start()
+    return jsonify({'success': True, 'async': True})
+
+@app.route('/api/upload_status')
+def upload_status():
+    return jsonify(_processing_state)
 
 @app.route('/dashboard')
 def dashboard():
