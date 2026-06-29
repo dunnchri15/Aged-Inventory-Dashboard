@@ -525,9 +525,6 @@ h1{font-size:22px;color:#1F3864;font-weight:700}
       <div class="sublabel">Click to browse or drag and drop</div>
       <div class="file-chosen" id="bl"></div>
     </div>
-      <div class="sublabel">Click to browse or drag and drop</div>
-      <div class="file-chosen" id="bl"></div>
-    </div>
     <div class="progress" id="prog">
       <div class="progress-bar"><div class="progress-fill" id="pf"></div></div>
       <div class="steps">
@@ -578,7 +575,11 @@ document.getElementById('uploadForm').addEventListener('submit',async function(e
   // Advance steps while processing runs in background
   [1000,4000,8000,11000].forEach(function(d,i){setTimeout(function(){setStep(i+2);},d);});
   try{
-    var res=await fetch('/upload',{method:'POST',body:fd});
+    // 60 second timeout for initial upload (file transfer can be slow)
+    var uploadCtrl=new AbortController();
+    var uploadTimeout=setTimeout(()=>uploadCtrl.abort(),60000);
+    var res=await fetch('/upload',{method:'POST',body:fd,signal:uploadCtrl.signal});
+    clearTimeout(uploadTimeout);
     var data=await res.json();
     if(!data.success) throw new Error(data.error||'Upload failed');
     // Poll /api/upload_status until done
