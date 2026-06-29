@@ -359,6 +359,7 @@ def process_files(warehouse_path, notes_path, billing_path=None):
     new_to_storage = []
 
     # Load previous statuses if they exist
+    prev_data = {}
     if PREV_STATUS_PATH.exists():
         prev_data     = json.loads(PREV_STATUS_PATH.read_text())
         prev_statuses = prev_data.get('statuses', prev_data) if isinstance(prev_data, dict) and 'statuses' in prev_data else prev_data
