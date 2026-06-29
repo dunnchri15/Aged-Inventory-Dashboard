@@ -446,7 +446,7 @@ def process_files(warehouse_path, notes_path, billing_path=None):
 
     return {
         'kpis':         kpis,
-        'billing':      billing_summary,
+        'billing':      billing_orders,
         'coord_table':  coord_tbl,
         'age_table':    age_tbl,
         'orders_table': orders_tbl,
