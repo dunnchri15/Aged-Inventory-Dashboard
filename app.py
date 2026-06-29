@@ -280,6 +280,25 @@ def process_files(warehouse_path, notes_path, billing_path=None):
         serial=('CONTAINERS', lambda x: str(x.dropna().iloc[0]).strip() if x.dropna().any() and str(x.dropna().iloc[0]).strip() not in ('','nan') else '—'),
     ).reset_index()
 
+    # ── Billing file processing ──────────────────────────────────────────────
+
+    billing_orders = {}  # order_number -> {charge_amount, charge_type, note, pc, ship_date}
+    if billing_path and Path(billing_path).exists():
+        try:
+            bdf = pd.read_excel(billing_path, engine='openpyxl')
+            for _, row in bdf.iterrows():
+                order = str(row.get('Order Number', '')).strip()
+                if order and order != 'nan':
+                    billing_orders[order] = {
+                        'charge_amount': round(float(row['Charge Amount']), 2) if pd.notna(row.get('Charge Amount')) else 0,
+                        'charge_type':   str(row.get('Charge Type', '')).strip() if pd.notna(row.get('Charge Type')) else '',
+                        'note':          str(row.get('Note', '')).strip() if pd.notna(row.get('Note')) else '',
+                        'pc':            str(row.get('PC', '')).strip() if pd.notna(row.get('PC')) else '',
+                    }
+        except Exception as e:
+            billing_orders = {}
+    BILLING_PATH.write_text(json.dumps(billing_orders))
+
     offsite_items = []
     for _, row in ord_agg.sort_values('max_age', ascending=False).iterrows():
         age = int(row['max_age'])
@@ -287,7 +306,7 @@ def process_files(warehouse_path, notes_path, billing_path=None):
         elif age > 30: flag = '>30 Days'
         else:          flag = '≤30 Days'
         order_str = str(row['order'])
-        billing_info = billing_map.get(order_str, {})
+        billing_info = billing_orders.get(order_str, {})
         offsite_items.append({
             'building':       str(row['BUILDING']),
             'location_group': str(row['LOCATION_GROUP']),
@@ -328,66 +347,6 @@ def process_files(warehouse_path, notes_path, billing_path=None):
         'statuses':     sorted([s for s in offsite_df['ORDER_STATUS'].dropna().unique().tolist() if s != '.']),
     }
 
-    # Billing summary for return
-    billed_orders = list(billing_orders.keys())
-    billing_summary = {
-        'billed_orders':  billed_orders,
-        'total_billed':   round(sum(v['charge_amount'] for v in billing_orders.values()), 2),
-        'num_projects':   len(billed_orders),
-        'details':        billing_orders,
-    }
-
-    # ── Billing file processing ───────────────────────────────────────────────
-    billing_map = {}  # order_number → {charge_amount, charge_type, note, pc}
-    if BILLING_PATH.exists():
-        try:
-            df_billing = pd.read_excel(BILLING_PATH)
-            for _, row in df_billing.iterrows():
-                order = str(row.get('Order Number', '')).strip()
-                if order:
-                    billing_map[order] = {
-                        'charge_amount': round(float(row['Charge Amount']), 2) if pd.notna(row.get('Charge Amount')) else 0,
-                        'charge_type':   str(row.get('Charge Type', '')) if pd.notna(row.get('Charge Type')) else '',
-                        'note':          str(row.get('Note', '')) if pd.notna(row.get('Note')) else '',
-                        'pc':            str(row.get('PC', '')) if pd.notna(row.get('PC')) else '',
-                    }
-        except Exception:
-            pass
-
-    # ── Billing file processing ───────────────────────────────────────────────
-    billing_orders = {}  # order_number -> {charge_amount, charge_type, note, pc}
-    if billing_path and Path(billing_path).exists():
-        try:
-            df_bill = pd.read_excel(billing_path, engine='openpyxl')
-            for _, row in df_bill.iterrows():
-                order = str(row.get('Order Number', '')).strip()
-                if order and order != 'nan':
-                    billing_orders[order] = {
-                        'charge_amount': float(row['Charge Amount']) if pd.notna(row.get('Charge Amount')) else 0,
-                        'charge_type':   str(row['Charge Type'])     if pd.notna(row.get('Charge Type'))   else '',
-                        'note':          str(row['Note'])             if pd.notna(row.get('Note'))          else '',
-                        'pc':            str(row['PC'])               if pd.notna(row.get('PC'))            else '',
-                    }
-        except Exception as e:
-            pass  # billing file optional - don't crash if malformed
-
-    # ── Billing file processing ──────────────────────────────────────────────
-    billing_orders = {}  # order_number -> {charge_amount, charge_type, note, pc, ship_date}
-    if billing_path and Path(billing_path).exists():
-        try:
-            bdf = pd.read_excel(billing_path, engine='openpyxl')
-            for _, row in bdf.iterrows():
-                order = str(row.get('Order Number', '')).strip()
-                if order and order != 'nan':
-                    billing_orders[order] = {
-                        'charge_amount': round(float(row['Charge Amount']), 2) if pd.notna(row.get('Charge Amount')) else 0,
-                        'charge_type':   str(row.get('Charge Type', '')).strip() if pd.notna(row.get('Charge Type')) else '',
-                        'note':          str(row.get('Note', '')).strip() if pd.notna(row.get('Note')) else '',
-                        'pc':            str(row.get('PC', '')).strip() if pd.notna(row.get('PC')) else '',
-                    }
-        except Exception as e:
-            billing_orders = {}
-    BILLING_PATH.write_text(json.dumps(billing_orders))
 
     # ── New-to-Storage detection ──────────────────────────────────────────────
     # Build current order→status+location map
@@ -561,29 +520,11 @@ h1{font-size:22px;color:#1F3864;font-weight:700}
     </div>
     <div class="drop-zone" id="bz" onclick="document.getElementById('bf').click()">
       <input type="file" id="bf" accept=".xlsx" onchange="pick(this,'bz','bl')">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
       <div class="label">Storage Billing (.xlsx) <span style="font-size:11px;color:#94a3b8;font-weight:400">optional</span></div>
       <div class="sublabel">Click to browse or drag and drop</div>
       <div class="file-chosen" id="bl"></div>
     </div>
-    <div class="drop-zone" id="bz" onclick="document.getElementById('bf').click()">
-      <input type="file" id="bf" accept=".xlsx" onchange="pick(this,'bz','bl')">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><circle cx="12" cy="13" r="2"/></svg>
-      <div class="label">Storage Billing (.xlsx) <span style="font-size:11px;color:#94a3b8;font-weight:400">Optional</span></div>
-      <div class="sublabel">Storage Orders Needing to be Billed</div>
-      <div class="file-chosen" id="bl"></div>
-    </div>
-    <div class="drop-zone" id="bz" onclick="document.getElementById('bf').click()" style="border-color:#c0d8f0;background:#f0f7ff;">
-      <input type="file" id="bf" accept=".xlsx" onchange="pick(this,'bz','bl')">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-      <div class="label" style="color:#2E75B6">Storage Billing File (.xlsx) <span style="font-size:11px;font-weight:400;color:#64748b">— optional</span></div>
-      <div class="sublabel">Click to browse or drag and drop</div>
-      <div class="file-chosen" id="bl"></div>
-    </div>
-    <div class="drop-zone" id="bz" onclick="document.getElementById('bf').click()" style="border-color:#2E75B6;background:#f0f7ff;">
-      <input type="file" id="bf" accept=".xlsx" onchange="pick(this,'bz','bl')">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-      <div class="label" style="color:#2E75B6">Storage Billing File (.xlsx) <span style="font-size:11px;font-weight:400;color:#94a3b8">optional</span></div>
       <div class="sublabel">Click to browse or drag and drop</div>
       <div class="file-chosen" id="bl"></div>
     </div>
