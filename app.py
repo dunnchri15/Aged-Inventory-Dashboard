@@ -641,51 +641,50 @@ def index():
 # Processing state for async upload
 _processing_state = {'status': 'idle', 'error': None}
 
-def _run_processing(wh_path, notes_path, warehouse_filename, notes_filename, billing_path=None, billing_filename=None):
-    global _processing_state
-    _processing_state = {'status': 'processing', 'error': None}
-    try:
-        data = process_files(wh_path, notes_path, billing_path)
-        PROCESSED_PATH.write_text(json.dumps(data))
-        META_PATH.write_text(json.dumps({
-            'warehouse_filename': warehouse_filename,
-            'notes_filename':     notes_filename,
-            'billing_filename':   billing_filename or '',
-            'rows':               data['kpis']['total_containers'],
-            'sdrop_items':        data['sdrop']['kpis']['total_items'],
-            'uploaded':           data['uploaded'],
-        }))
-        _processing_state = {'status': 'done', 'error': None}
-    except Exception as e:
-        import traceback
-        _processing_state = {'status': 'error', 'error': str(e), 'detail': traceback.format_exc()}
 
 @app.route('/upload', methods=['POST'])
 def upload():
     import threading
     warehouse = request.files.get('warehouse')
-    notes = request.files.get('notes')
+    notes     = request.files.get('notes')
     if not warehouse or not notes:
         return jsonify({'error': 'Both files are required'}), 400
-    billing    = request.files.get('billing')
-    wh_path    = DATA_DIR / 'warehouse_temp.xlsx'
-    notes_path = DATA_DIR / 'notes_temp.csv'
-    warehouse.save(wh_path)
-    notes.save(notes_path)
-    if billing:
-        billing.save(BILLING_PATH)
-    elif not BILLING_PATH.exists():
-        # Create empty billing file placeholder
-        import openpyxl
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(['Order Number','Charge Amount','Charge Type','PC','Note'])
-        wb.save(BILLING_PATH)
-    wh_name = warehouse.filename
-    nt_name = notes.filename
-    # Start processing in background thread — returns immediately to avoid timeout
-    t = threading.Thread(target=_run_processing, args=(wh_path, notes_path, wh_name, nt_name), daemon=True)
-    t.start()
+    billing = request.files.get('billing')
+
+    # Read all file bytes in the request handler (must happen before returning)
+    wh_bytes    = warehouse.read()
+    notes_bytes = notes.read()
+    bill_bytes  = billing.read() if billing else None
+    wh_name     = warehouse.filename
+    nt_name     = notes.filename
+
+    def _save_and_process():
+        global _processing_state
+        _processing_state = {'status': 'processing', 'error': None}
+        try:
+            wh_path    = DATA_DIR / 'warehouse_temp.xlsx'
+            notes_path = DATA_DIR / 'notes_temp.csv'
+            wh_path.write_bytes(wh_bytes)
+            notes_path.write_bytes(notes_bytes)
+            bl_path = None
+            if bill_bytes:
+                BILLING_PATH.write_bytes(bill_bytes)
+                bl_path = BILLING_PATH
+            data = process_files(wh_path, notes_path, bl_path)
+            PROCESSED_PATH.write_text(json.dumps(data))
+            META_PATH.write_text(json.dumps({
+                'warehouse_filename': wh_name,
+                'notes_filename':     nt_name,
+                'rows':               data['kpis']['total_containers'],
+                'sdrop_items':        data['sdrop']['kpis']['total_items'],
+                'uploaded':           data['uploaded'],
+            }))
+            _processing_state = {'status': 'done', 'error': None}
+        except Exception as e:
+            import traceback
+            _processing_state = {'status': 'error', 'error': str(e), 'detail': traceback.format_exc()}
+
+    threading.Thread(target=_save_and_process, daemon=True).start()
     return jsonify({'success': True, 'async': True})
 
 @app.route('/api/upload_status')
