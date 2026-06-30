@@ -286,8 +286,20 @@ def process_files(warehouse_path, notes_path, billing_path=None):
     if billing_path and Path(billing_path).exists():
         try:
             bdf = pd.read_excel(billing_path, engine='openpyxl')
+            # Print column names to help debug
+            print(f"Billing file columns: {list(bdf.columns)}")
+            print(f"Billing file rows: {len(bdf)}")
+            if len(bdf) > 0:
+                print(f"First row sample: {bdf.iloc[0].to_dict()}")
             for _, row in bdf.iterrows():
-                order = str(row.get('Order Number', '')).strip()
+                raw_order = row.get('Order Number', row.get('Order No', row.get('Order', '')))
+                if pd.isna(raw_order):
+                    continue
+                # Handle numeric order numbers (Excel stores as float like 2013082.0)
+                if isinstance(raw_order, (int, float)):
+                    order = str(int(raw_order))
+                else:
+                    order = str(raw_order).strip().rstrip('.0') if str(raw_order).endswith('.0') else str(raw_order).strip()
                 if order and order != 'nan':
                     billing_orders[order] = {
                         'charge_amount': round(float(row['Charge Amount']), 2) if pd.notna(row.get('Charge Amount')) else 0,
@@ -707,7 +719,29 @@ def api_set_disposition():
 def api_billing():
     if not BILLING_PATH.exists():
         return '{}', 200, {'Content-Type': 'application/json'}
-    return BILLING_PATH.read_text(), 200, {'Content-Type': 'application/json'}
+    data = BILLING_PATH.read_text()
+    parsed = json.loads(data)
+    print(f"[DEBUG] /api/billing returning {len(parsed)} orders: {list(parsed.keys())[:5]}")
+    return data, 200, {'Content-Type': 'application/json'}
+
+@app.route('/api/billing_debug')
+def api_billing_debug():
+    """Debug endpoint to check billing data"""
+    if not BILLING_PATH.exists():
+        return jsonify({'error': 'No billing file uploaded', 'path': str(BILLING_PATH)})
+    data = json.loads(BILLING_PATH.read_text())
+    # Also check a few offsite orders to see if they match
+    offsite_orders = []
+    if PROCESSED_PATH.exists():
+        processed = json.loads(PROCESSED_PATH.read_text())
+        offsite_orders = [r['order'] for r in processed.get('offsite', {}).get('items', [])[:10]]
+    matches = [o for o in offsite_orders if o in data]
+    return jsonify({
+        'billing_count': len(data),
+        'billing_sample_keys': list(data.keys())[:10],
+        'offsite_sample_orders': offsite_orders[:10],
+        'matches': matches
+    })
 
 @app.route('/api/dispositions')
 def api_dispositions():
