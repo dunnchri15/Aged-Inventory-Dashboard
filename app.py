@@ -105,7 +105,7 @@ def process_backorder(warehouse_path, backorder_path, dispositions=None):
 
     # Filter ship schedule to storage projects, exclude parts already in warehouse inventory
     # Only include job-specific parts (end in -{OrderNo}-{LineNo} pattern)
-    JOB_PART_RE = re.compile(r'.+-\d+-\d+$')
+    JOB_PART_RE = re.compile(r'(.+-\d+-\d+$|.*-FG$)')
     df_ss['ADDR_NORM'] = df_ss['Customer Address Code'].str.strip().str.lower()
     df_ss['PART_NORM'] = df_ss['Part No'].astype(str).str.strip()
     df_ss['REQ_DT']    = pd.to_datetime(df_ss['Require Ship Date'], errors='coerce')
@@ -115,8 +115,9 @@ def process_backorder(warehouse_path, backorder_path, dispositions=None):
     for _, row in ss_storage.iterrows():
         addr = row['ADDR_NORM']
         part = row['PART_NORM']
-        # Only show job-specific parts (ends in -{OrderNo}-{LineNo})
-        if not JOB_PART_RE.match(part):
+        # Only show job-specific parts (ends in -{OrderNo}-{LineNo} or -FG)
+        # Exclude BE parts (bought/external, not manufactured)
+        if not JOB_PART_RE.match(part) or part.upper().startswith('BE'):
             continue
         # Skip if this part is already in warehouse inventory for this project
         if part in wh_parts.get(addr, set()):
