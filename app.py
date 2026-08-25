@@ -438,12 +438,6 @@ def process_files(warehouse_path, notes_path, billing_path=None):
     }
 
 
-    # ── Storage jobs with incomplete parts (backorder cross-reference) ──────────
-    backorder_items = []
-    if 'backorder_df' in dir():
-        pass  # placeholder - processed separately via upload
-    BACKORDER_PATH.write_text(json.dumps(backorder_items))
-
     # ── New-to-Storage detection ──────────────────────────────────────────────
     # Build current order→status+location map
     curr_statuses = {}
