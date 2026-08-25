@@ -826,6 +826,21 @@ def api_backorder():
         return '[]', 200, {'Content-Type': 'application/json'}
     return BACKORDER_PATH.read_text(), 200, {'Content-Type': 'application/json'}
 
+@app.route('/api/backorder_debug')
+def api_backorder_debug():
+    result = {
+        'backorder_file_exists': BACKORDER_PATH.exists(),
+        'backorder_count': 0,
+        'sample_projects': [],
+        'processed_file_exists': PROCESSED_PATH.exists(),
+    }
+    if BACKORDER_PATH.exists():
+        data = json.loads(BACKORDER_PATH.read_text())
+        result['backorder_count'] = len(data)
+        projects = list(set(r.get('ship_to','') for r in data))[:10]
+        result['sample_projects'] = projects
+    return jsonify(result)
+
 @app.route('/api/billing')
 def api_billing():
     if not BILLING_PATH.exists():
