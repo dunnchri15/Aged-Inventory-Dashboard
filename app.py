@@ -81,20 +81,19 @@ def process_backorder(warehouse_path, backorder_path):
     ).reset_index()
     wh_proj_dict = {r['SHIP_TO'].strip().lower(): r for _, r in wh_proj_summary.iterrows()}
 
-    # Filter ship schedule to storage projects only
+    # Filter ship schedule to storage projects, exclude parts already in warehouse inventory
     df_ss['ADDR_NORM'] = df_ss['Customer Address Code'].str.strip().str.lower()
     df_ss['PART_NORM'] = df_ss['Part No'].astype(str).str.strip()
     df_ss['REQ_DT']    = pd.to_datetime(df_ss['Require Ship Date'], errors='coerce')
     ss_storage = df_ss[df_ss['ADDR_NORM'].isin(storage_ship_to)].copy()
 
-    # Find lines where part is NOT in warehouse inventory for that project
     results = []
     for _, row in ss_storage.iterrows():
         addr = row['ADDR_NORM']
         part = row['PART_NORM']
-        inv_parts = wh_parts.get(addr, set())
-        if part in inv_parts:
-            continue  # part IS in inventory — job is covered
+        # Skip if this part is already in warehouse inventory for this project
+        if part in wh_parts.get(addr, set()):
+            continue
         wh = wh_proj_dict.get(addr, {})
         results.append({
             'ship_to':        str(row['Customer Address Code']).strip(),
