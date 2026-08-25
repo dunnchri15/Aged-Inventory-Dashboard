@@ -62,17 +62,27 @@ def process_backorder(warehouse_path, backorder_path):
     except Exception:
         df_ss = pd.read_csv(backorder_path, encoding='utf-8')
 
-    # Storage projects in warehouse
-    storage_wh = df_wh[df_wh['ORDER_STATUS'].str.lower().str.startswith('storage', na=False)].copy()
-    storage_ship_to = set(storage_wh['SHIP_TO'].str.strip().str.lower().unique())
+    # Projects with ANY inventory physically in storage/offsite locations
+    STORAGE_LOCS = [
+        'S-Finished Goods/D1000-D2000',
+        'S-Offsite Warehouse - Porter',
+        'S-Offsite Warehouse',
+        'S-Offsite Warehouse - B',
+        'S-Offsite Warehouse \u2013 C',
+        'S-Offsite Warehouse - Fabric',
+        'S-Offsite Warehouse - Hardware',
+        'S-Trailer',
+    ]
+    storage_inv = df_wh[df_wh['LOCATION_GROUP'].isin(STORAGE_LOCS)]
+    storage_ship_to = set(storage_inv['SHIP_TO'].str.strip().str.lower().unique())
 
-    # Build parts-in-inventory lookup per project (SHIP_TO → set of PART_NO)
+    # Build parts-in-warehouse lookup per project (ALL parts, any location)
     wh_parts = {}
     for ship_to, grp in df_wh.groupby('SHIP_TO'):
         wh_parts[ship_to.strip().lower()] = set(grp['PART_NO'].astype(str).str.strip().unique())
 
-    # Warehouse storage project summaries
-    wh_proj_summary = storage_wh.groupby('SHIP_TO').agg(
+    # Warehouse storage inventory summary per project
+    wh_proj_summary = storage_inv.groupby('SHIP_TO').agg(
         storage_orders=('ORDERS', lambda x: list(x[x.notna() & (x.astype(str) != '.')].unique())),
         storage_value=('EXTENDED_COST', 'sum'),
         avg_age=('INV_AGE', 'mean'),
