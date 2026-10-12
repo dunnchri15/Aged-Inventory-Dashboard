@@ -51,9 +51,13 @@ def assign_age_buckets(series):
 
 # ── Process uploaded files ────────────────────────────────────────────────────
 def process_backorder(warehouse_path, backorder_path, dispositions=None):
-    """Cross-reference projects with 'Storage Charged' disposition against the
-    ship schedule to find parts not yet in warehouse inventory.
-    Falls back to location-group based detection if no dispositions set.
+    """Cross-reference storage orders against the ship schedule to find parts
+    not yet in warehouse inventory.  Matching is done on ORDER NUMBER, not just
+    project name, so a new order for the same project is never incorrectly flagged.
+
+    Primary:  orders flagged 'Storage Charged' in dispositions that also appear
+              in the warehouse in a storage location.
+    Fallback: any order physically in a storage location (when no dispositions set).
     """
     df_wh = read_excel_fast(warehouse_path)
     try:
@@ -61,9 +65,6 @@ def process_backorder(warehouse_path, backorder_path, dispositions=None):
     except Exception:
         df_ss = pd.read_csv(backorder_path, encoding='utf-8')
 
-    # Build set of SHIP_TO values to cross-reference:
-    # Primary: projects whose orders are flagged as 'Storage Charged' in dispositions
-    # Fallback: any project with inventory physically in storage locations
     STORAGE_LOCS = [
         'S-Finished Goods/D1000-D2000',
         'S-Offsite Warehouse - Porter',
@@ -74,73 +75,104 @@ def process_backorder(warehouse_path, backorder_path, dispositions=None):
         'S-Offsite Warehouse - Hardware',
         'S-Trailer',
     ]
-    storage_inv = df_wh[df_wh['LOCATION_GROUP'].isin(STORAGE_LOCS)]
+    storage_inv = df_wh[df_wh['LOCATION_GROUP'].isin(STORAGE_LOCS)].copy()
 
+    # Normalise the ORDERS column to strings for comparison against SS Order No
+    storage_inv['ORDER_STR'] = (
+        storage_inv['ORDERS']
+        .fillna('')
+        .astype(str)
+        .str.strip()
+        .str.replace(r'\.0$', '', regex=True)
+    )
+    storage_inv = storage_inv[storage_inv['ORDER_STR'] != '']
+
+    # Determine which ORDER NUMBERS are in scope
     if dispositions:
-        # Use orders flagged as Storage Charged — find their SHIP_TO values
-        charged_orders = {o for o, d in dispositions.items() if d == 'Storage Charged'}
+        charged_orders = {str(o).strip() for o, d in dispositions.items() if d == 'Storage Charged'}
         if charged_orders:
-            charged_rows = df_wh[df_wh['ORDERS'].astype(str).str.strip().isin(charged_orders)]
-            storage_ship_to = set(charged_rows['SHIP_TO'].str.strip().str.lower().unique())
+            storage_order_set = set(storage_inv['ORDER_STR'].unique())
+            in_scope_orders = charged_orders & storage_order_set
         else:
-            # No Storage Charged dispositions yet — fall back to location filter
-            storage_ship_to = set(storage_inv['SHIP_TO'].str.strip().str.lower().unique())
+            in_scope_orders = set(storage_inv['ORDER_STR'].unique())
     else:
-        storage_ship_to = set(storage_inv['SHIP_TO'].str.strip().str.lower().unique())
+        in_scope_orders = set(storage_inv['ORDER_STR'].unique())
 
-    # Build parts-in-warehouse lookup per project (ALL parts, any location)
-    wh_parts = {}
-    for ship_to, grp in df_wh.groupby('SHIP_TO'):
-        wh_parts[ship_to.strip().lower()] = set(grp['PART_NO'].astype(str).str.strip().unique())
+    if not in_scope_orders:
+        return []
 
-    # Warehouse storage inventory summary per project
-    wh_proj_summary = storage_inv.groupby('SHIP_TO').agg(
-        storage_orders=('ORDERS', lambda x: list(x[x.notna() & (x.astype(str) != '.')].unique())),
-        storage_value=('EXTENDED_COST', 'sum'),
-        avg_age=('INV_AGE', 'mean'),
-        max_age=('INV_AGE', 'max'),
-        storage_status=('ORDER_STATUS', lambda x: x.mode().iloc[0] if len(x) else ''),
+    # Per-order warehouse summary
+    order_summary = storage_inv.groupby('ORDER_STR').agg(
+        ship_to_val   =('SHIP_TO',       'first'),
+        storage_value =('EXTENDED_COST', 'sum'),
+        avg_age       =('INV_AGE',       'mean'),
+        max_age       =('INV_AGE',       'max'),
+        storage_status=('ORDER_STATUS',  lambda x: x.mode().iloc[0] if len(x) else ''),
     ).reset_index()
-    wh_proj_dict = {r['SHIP_TO'].strip().lower(): r for _, r in wh_proj_summary.iterrows()}
+    order_dict = {r['ORDER_STR']: r for _, r in order_summary.iterrows()}
 
-    # Filter ship schedule to storage projects, exclude parts already in warehouse inventory
-    # Only include job-specific parts (end in -{OrderNo}-{LineNo} pattern)
+    # Build parts-in-warehouse lookup per ORDER (any location)
+    wh_df_orders = df_wh.copy()
+    wh_df_orders['ORDER_STR'] = (
+        wh_df_orders['ORDERS'].fillna('').astype(str).str.strip()
+        .str.replace(r'\.0$', '', regex=True)
+    )
+    wh_parts_by_order = {}
+    for order_str, grp in wh_df_orders[wh_df_orders['ORDER_STR'] != ''].groupby('ORDER_STR'):
+        wh_parts_by_order[order_str] = set(grp['PART_NO'].astype(str).str.strip().unique())
+
+    # Filter ship schedule to in-scope orders only
     JOB_PART_RE = re.compile(r'(.+-\d+-\d+$|.*-FG$)')
-    df_ss['ADDR_NORM'] = df_ss['Customer Address Code'].str.strip().str.lower()
+    df_ss['SS_ORDER'] = (
+        df_ss['Order No'].astype(str).str.strip()
+        .str.replace(r'\.0$', '', regex=True)
+    )
     df_ss['PART_NORM'] = df_ss['Part No'].astype(str).str.strip()
     df_ss['REQ_DT']    = pd.to_datetime(df_ss['Require Ship Date'], errors='coerce')
-    ss_storage = df_ss[df_ss['ADDR_NORM'].isin(storage_ship_to)].copy()
+    ss_storage = df_ss[df_ss['SS_ORDER'].isin(in_scope_orders)].copy()
 
     results = []
     for _, row in ss_storage.iterrows():
-        addr = row['ADDR_NORM']
-        part = row['PART_NORM']
-        # Only show job-specific parts (ends in -{OrderNo}-{LineNo} or -FG)
-        # Exclude BE parts (bought/external, not manufactured)
+        order = row['SS_ORDER']
+        part  = row['PART_NORM']
+        # Only job-specific parts; exclude BE parts
         if not JOB_PART_RE.match(part) or part.upper().startswith('BE'):
             continue
-        # Skip if this part is already in warehouse inventory for this project
-        if part in wh_parts.get(addr, set()):
+        # Skip if this part is already in the warehouse for THIS specific order
+        if part in wh_parts_by_order.get(order, set()):
             continue
-        wh = wh_proj_dict.get(addr, {})
+        # order_dict values are pandas Series rows; use [] indexing with defaults
+        wh_row = order_dict.get(order)
+        if wh_row is not None:
+            ship_to_raw    = str(wh_row['ship_to_val'])
+            storage_value  = round(float(wh_row['storage_value']), 2)
+            avg_age        = round(float(wh_row['avg_age']), 1)
+            max_age_val    = int(wh_row['max_age'])
+            storage_status = str(wh_row['storage_status'])
+        else:
+            ship_to_raw    = str(row.get('Customer Address Code', ''))
+            storage_value  = 0.0
+            avg_age        = 0.0
+            max_age_val    = 0
+            storage_status = ''
         results.append({
-            'ship_to':        str(row['Customer Address Code']).strip(),
-            'project':        re.sub(r'^[ST]-', '', str(row['Customer Address Code']).strip()).strip(),
-            'storage_orders': list(wh.get('storage_orders', [])) if hasattr(wh.get('storage_orders', []), '__iter__') else [],
-            'storage_value':  round(float(wh.get('storage_value', 0)), 2),
-            'avg_age':        round(float(wh.get('avg_age', 0)), 1),
-            'max_age':        int(wh.get('max_age', 0)),
-            'storage_status': str(wh.get('storage_status', '')),
-            'ss_order':       str(row['Order No']),
-            'coordinator':    str(row['Project Coordinator']).strip() if pd.notna(row['Project Coordinator']) else '—',
+            'ship_to':        ship_to_raw.strip(),
+            'project':        re.sub(r'^[ST]-', '', ship_to_raw.strip()).strip(),
+            'storage_orders': [order],
+            'storage_value':  storage_value,
+            'avg_age':        avg_age,
+            'max_age':        max_age_val,
+            'storage_status': storage_status,
+            'ss_order':       order,
+            'coordinator':    str(row['Project Coordinator']).strip() if pd.notna(row.get('Project Coordinator')) else '—',
             'part_no':        part,
             'revision':       str(row.get('Revision', '')).strip() if pd.notna(row.get('Revision')) else '',
-            'quantity':       int(row['Quantity']) if pd.notna(row['Quantity']) else 0,
-            'qty_shipped':    int(row['Qty Shipped']) if pd.notna(row['Qty Shipped']) else 0,
+            'quantity':       int(row['Quantity']) if pd.notna(row.get('Quantity')) else 0,
+            'qty_shipped':    int(row['Qty Shipped']) if pd.notna(row.get('Qty Shipped')) else 0,
             'line_status':    str(row['Order Line Status']).strip(),
             'order_status':   str(row['Order Status']).strip(),
             'ship_date':      row['REQ_DT'].strftime('%m/%d/%Y') if pd.notna(row['REQ_DT']) else '—',
-            'customer_name':  str(row['Customer Name (Project Name) *']).strip(),
+            'customer_name':  str(row.get('Customer Name (Project Name) *', '')).strip(),
         })
 
     return results
